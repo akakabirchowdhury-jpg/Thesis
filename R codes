@@ -1,0 +1,177 @@
+library(haven)
+ch2012 <- read_sav("D:/Monayer/ch2012.sav")
+ch2019 <- read_sav("D:/Monayer/ch2019.sav")
+ch2025 <- read_sav("D:/Monayer/ch2025.sav")
+colnames(ch2012)
+colnames(ch2019)
+colnames(ch2025)
+str(ch2012)
+library(dplyr)
+ch2012 <- ch2012 %>%
+  rename(UB1D = AG1D, UB1M = AG1M, UB1Y = AG1Y,
+         UB2 = AG2 )
+common_cols <- Reduce(intersect, list(names(ch2012), names(ch2019), names(ch2025)))
+length(common_cols)
+common_cols
+setdiff(names(ch2012), common_cols)  # in 2012 only (relative to others)
+setdiff(names(ch2019), common_cols)
+setdiff(names(ch2025), common_cols)
+# quick case-insensitive check for near-misses
+tolower_common <- Reduce(intersect, list(tolower(names(ch2012)), tolower(names(ch2019)), tolower(names(ch2025))))
+setdiff(tolower_common, tolower(common_cols))  # variables only missed due to case
+ch12 <- ch2012 |> select(common_cols)
+ch2012_sub <- ch2012 %>% select(all_of(common_cols)) %>% mutate(survey_year = 2012)
+ch2019_sub <- ch2019 %>% select(all_of(common_cols)) %>% mutate(survey_year = 2019)
+ch2025_sub <- ch2025 %>% select(all_of(common_cols)) %>% mutate(survey_year = 2025)
+
+ch_merged <- bind_rows(ch2012_sub, ch2019_sub, ch2025_sub)
+View(ch_merged)
+
+#var_labels <- sapply(ch2012, attr, "label")
+#
+#ch12_labels <- data.frame(variable = names(var_labels),
+#                          label = unname(var_labels))
+#library(openxlsx2)
+#write_xlsx(ch12_labels,file = "ch12_labels.xlsx")
+#
+#var_labels <- sapply(ch2019, attr, "label")
+#ch19_labels <- data.frame(variable = names(var_labels),
+#                          label = unname(var_labels))
+#write_xlsx(ch19_labels,file = "ch19_labels.xlsx")
+#
+#var_labels <- sapply(ch2025, attr, "label")
+#ch25_labels <- data.frame(variable = names(var_labels),
+#                          label = unname(var_labels))
+#write_xlsx(ch25_labels,file = "ch25_labels.xlsx")
+
+
+# ============================================================
+# Map birth-year agricultural production & climate data onto
+# the merged MICS child dataset (ch_merged)
+# ============================================================
+# Assumes ch_merged already exists in your session (from your
+# 2012/2019/2025 merge), and Agri_production.xlsx is the workbook
+# with sheets: "Total Rice, All types ", "Wheat ", "Maize ", "Potato"
+#
+# NOTE: Production data here is NATIONAL-YEAR only (no district
+# breakdown available). So agri_national and every crop/production
+# column below is the same for every district in a given birth
+# year -- it varies by birth_year only, not by HH7A (district).
+# District-wise temperature/rainfall will come from the separate
+# 64 district files later and *will* vary by HH7A + birth_year.
+# ============================================================
+
+library(readxl)
+library(dplyr)
+library(janitor)   # clean_names() for climate columns
+
+agri_path <- "D:/Monayer/Agri_production.xlsx"   # <-- update path
+
+# ------------------------------------------------------------
+# 1. Crop-specific columns (differ by sheet)
+# ------------------------------------------------------------
+crop_map <- c(
+  "Total Rice, All types " = "rice",
+  "Wheat "                 = "wheat",
+  "Maize "                 = "maize",
+  "Potato"                 = "potato"
+)
+
+crop_specific_cols <- c(
+  "Area (Acres)", "Production (Tons)",
+  "Calculated Yield (KG)", "Raw Yield (KG)",
+  "Price (Per Quintal in BDT)"
+)
+
+crop_list <- lapply(names(crop_map), function(sn) {
+  prefix <- crop_map[[sn]]
+  read_excel(agri_path, sheet = sn) %>%
+    select(Year, all_of(crop_specific_cols)) %>%
+    rename(
+      !!paste0(prefix, "_area_acres")        := `Area (Acres)`,
+      !!paste0(prefix, "_production_tons")   := `Production (Tons)`,
+      !!paste0(prefix, "_yield_calc_kg")     := `Calculated Yield (KG)`,
+      !!paste0(prefix, "_yield_raw_kg")      := `Raw Yield (KG)`,
+      !!paste0(prefix, "_price_bdt_quintal") := `Price (Per Quintal in BDT)`
+    )
+})
+
+agri_crops <- Reduce(function(x, y) full_join(x, y, by = "Year"), crop_list)
+
+# ------------------------------------------------------------
+# 2. Shared national climate/economic columns
+#    (identical across all 4 sheets -> pull from one sheet only,
+#    e.g. Rice, to avoid duplicating 60 columns x 4)
+# ------------------------------------------------------------
+agri_climate <- read_excel(agri_path, sheet = names(crop_map)[1]) %>%
+  select(-all_of(crop_specific_cols)) %>%
+  clean_names()   # e.g. "(Dry-Bulb)Annual Average Temperature (°C)" -> dry_bulb_annual_average_temperature_c
+
+names(agri_climate)[names(agri_climate) == "year"] <- "Year"
+
+# ------------------------------------------------------------
+# 3. Combine into one national year-level agri/climate table
+# ------------------------------------------------------------
+agri_national <- agri_crops %>%
+  left_join(agri_climate, by = "Year") %>%
+  rename(birth_year = Year) %>%
+  arrange(birth_year)
+
+# reference period mean/SD for anomalies (full available series;
+# swap to a rolling 20-yr window later if you want it time-varying)
+prod_cols <- grep("_production_tons$", names(agri_national), value = TRUE)
+
+for (col in prod_cols) {
+  crop <- sub("_production_tons$", "", col)
+  m <- mean(agri_national[[col]], na.rm = TRUE)
+  agri_national[[paste0(crop, "_production_anomaly")]] <-
+    (agri_national[[col]] - m) / m
+}
+
+# ------------------------------------------------------------
+# 4. Construct birth_year in ch_merged from UB1D/UB1M/UB1Y
+# ------------------------------------------------------------
+# MICS commonly codes missing as 99 (day), 99 (month), 9999 (year).
+# Adjust these missing-value codes if your codebook differs.
+ch_merged <- ch_merged %>%
+  mutate(
+    UB1D_clean = na_if(UB1D, 99),
+    UB1M_clean = na_if(UB1M, 99),
+    UB1Y_clean = na_if(UB1Y, 9999),
+    birth_year = as.numeric(UB1Y_clean)
+  )
+
+# sanity checks before merging
+cat("Birth year range in ch_merged:\n")
+print(range(ch_merged$birth_year, na.rm = TRUE))
+
+cat("\nAgri data year range:\n")
+print(range(agri_national$birth_year, na.rm = TRUE))
+
+cat("\nChildren whose birth_year falls OUTSIDE the agri data range",
+    "(will get NA production/climate values):\n")
+ch_merged %>%
+  filter(!is.na(birth_year), !birth_year %in% agri_national$birth_year) %>%
+  count(birth_year) %>%
+  print(n = Inf)
+
+cat("\nNumber of distinct districts (HH7A) in ch_merged:",
+    n_distinct(ch_merged$HH7A), "\n")
+cat("(Reminder: production/climate values from this file are national,",
+    "i.e. identical across HH7A within a birth_year -- district variation",
+    "will only enter once you bring in the 64 district temp/rainfall files.)\n")
+
+# ------------------------------------------------------------
+# 5. Merge
+# ------------------------------------------------------------
+ch_merged_agri <- ch_merged %>%
+  left_join(agri_national, by = "birth_year")
+
+# quick check
+cat("\nRows in ch_merged:", nrow(ch_merged), "\n")
+cat("Rows in ch_merged_agri:", nrow(ch_merged_agri), "\n")  # should match
+cat("Share with matched production data:",
+    mean(!is.na(ch_merged_agri$rice_production_tons)), "\n")
+
+# saveRDS(ch_merged_agri, "D:/Monayer/ch_merged_agri.rds")
+View(ch_merged_agri)
