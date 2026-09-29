@@ -34,11 +34,4 @@ local_id,wmo_id,station_name,division,lat,lon,altitude_m,est_year,matched_distri
 41858,41858,Sayedpur,Rangpur,25.75,88.92,39.6,1980,Nilphamari,YES
 10705,41891,Sylhet,Sylhet,24.90,91.88,33.5,1952,Sylhet,
 10724,41915,Srimangal,Sylhet,24.30,91.73,22.0,1905,Maulvibazar,YES
-41850,41850,Tetulia,Rangpur,26.483,88.35,,,Panchagarh,"YES (web-sourced, upazila town coords not exact station siting)"
-41851,41851,Dimla,Rangpur,26.128,88.925,,,Nilphamari,"YES (web-sourced, upazila town coords not exact station siting)"
-41856,41856,Rajarhat,Rangpur,25.8,89.55,,,Kurigram,"YES (web-sourced, upazila town coords not exact station siting)"
-41881,41881,Badalgachhi,Rajshahi,24.967,88.9,,,Naogaon,"YES (web-sourced, upazila town coords not exact station siting)"
-41897,41897,Tarash,Rajshahi,24.433,89.375,,,Sirajgonj,"YES (web-sourced, upazila town coords not exact station siting)"
-41927,41927,Kumarkhali,Khulna,23.854,89.242,,,Kustia,"YES (web-sourced, upazila town coords not exact station siting)"
-41888,41888,Netrokona,Mymensingh,24.88719,90.73292,,,Netrokona,"YES (web-sourced, upazila town coords not exact station siting)"
-41938,41938,Gopalganj,Dhaka,23.0155,89.835,,,Gopalganj,"YES (web-sourced, upazila town coords not exact station siting)"
+41902,41902,Nikli,Dhaka,24.317,90.933,,,Kishoregong,YES (web-sourced upazila coords)
